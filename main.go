@@ -3,46 +3,32 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"html/template"
 	"./models"
 	"crypto/rand"
+	"github.com/go-martini/martini"
+	"github.com/martini-contrib/render"
 )
 
 var posts map[string]*models.Post
 
-func indexHandler(writer http.ResponseWriter, request *http.Request) {
-	temp, err := template.ParseFiles("templates/index.html", "templates/footer.html", "templates/header.html")
-	if err != nil {
-		fmt.Fprint(writer, err.Error())
-	}
-
-	temp.ExecuteTemplate(writer, "index", posts)
+func indexHandler(rnd render.Render) {
+	rnd.HTML(200, "index", posts)
 }
 
-func writeHandler(writer http.ResponseWriter, request *http.Request) {
-	temp, err := template.ParseFiles("templates/write.html", "templates/footer.html", "templates/header.html")
-	if err != nil {
-		fmt.Fprint(writer, err.Error())
-	}
-	temp.ExecuteTemplate(writer, "write", nil)
+func writeHandler(rnd render.Render) {
+	rnd.HTML(200, "write", nil)
 }
 
-func editHandler(writer http.ResponseWriter, request *http.Request) {
-	temp, err := template.ParseFiles("templates/write.html", "templates/footer.html", "templates/header.html")
-	if err != nil {
-		fmt.Fprint(writer, err.Error())
-	}
-
-	id := request.FormValue("id")
+func editHandler(rnd render.Render, writer http.ResponseWriter, request *http.Request, params martini.Params) {
+	id := params["id"]
 	post, found := posts[id]
 	if !found {
 		http.NotFound(writer, request)
 	}
-
-	temp.ExecuteTemplate(writer, "write", post)
+	rnd.HTML(200, "write", post)
 }
 
-func savePostHandler(writer http.ResponseWriter, request *http.Request) {
+func savePostHandler(rnd render.Render, request *http.Request) {
 	id := request.FormValue("id")
 	title := request.FormValue("title")
 	content := request.FormValue("content")
@@ -55,19 +41,18 @@ func savePostHandler(writer http.ResponseWriter, request *http.Request) {
 	post = models.NewPost(id, title, content)
 	posts[post.Id] = post
 
-	http.Redirect(writer, request, "/", 302)
+	rnd.Redirect("/")
 }
 
-func deleteHandler(writer http.ResponseWriter, request *http.Request) {
-	id := request.FormValue("id")
+func deleteHandler(rnd render.Render, params martini.Params) {
+	id := params["id"]
 
 	if id == "" {
-		http.NotFound(writer, request)
+		rnd.Redirect("/")
 	}
 
 	delete(posts, id)
-
-	http.Redirect(writer, request, "/", 302)
+	rnd.Redirect("/")
 }
 
 func main() {
@@ -75,14 +60,27 @@ func main() {
 
 	posts = make(map[string]*models.Post, 0)
 
-	http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("./assets/"))))
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/write", writeHandler)
-	http.HandleFunc("/edit", editHandler)
-	http.HandleFunc("/delete", deleteHandler)
-	http.HandleFunc("/SavePost", savePostHandler)
+	m := martini.Classic()
 
-	http.ListenAndServe(":3000", nil)
+	m.Use(render.Renderer(render.Options{
+		Directory:  "templates",                // Specify what path to load the templates from.
+		Layout:     "layout",                   // Specify a layout template. Layouts can call {{ yield }} to render the current template.
+		Extensions: []string{".tmpl", ".html"}, // Specify extensions to load for templates.
+		//Funcs: []template.FuncMap{AppHelpers}, // Specify helper function maps for templates to access.
+		Charset:    "UTF-8", // Sets encoding for json and html content-types. Default is "UTF-8".
+		IndentJSON: true,    // Output human readable JSON
+	}))
+
+	staticOptions := martini.StaticOptions{Prefix: "assets"}
+	m.Use(martini.Static("assets", staticOptions))
+
+	m.Get("/", indexHandler)
+	m.Get("/write", writeHandler)
+	m.Get("/edit/:id", editHandler)
+	m.Get("/delete/:id", deleteHandler)
+	m.Post("/SavePost", savePostHandler)
+
+	m.Run()
 }
 
 func generateId() string {
